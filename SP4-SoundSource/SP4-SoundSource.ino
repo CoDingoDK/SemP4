@@ -10,7 +10,7 @@ const unsigned int micA = A0, micB = A1, micC = A2;
 int analogValA = 0, analogValB = 0, analogValC = 0;
 unsigned int counter = 0;
 float lastMicros, currMicros, detectStamp;
-const int activationThreshhold = 700;
+const int activationThreshhold = 650;
 boolean triggered = false;
 unsigned int lastStamp = 0;
 const int activationTimeFrame = 300;
@@ -126,53 +126,54 @@ void loop() {
       float remapBC = (100.0/maxTDOA)*sampleAreaCorrectedBC; 
 
       if(remapAB > 0 && remapBC < 0){
-        Serial.print("B is closest || ");
+//        Serial.print("B is closest || ");
         if (remapAC == 0){
           offsetAngle = 0;
           }
         if (remapAC < 0){
-          Serial.print("AB centre towards B");
-          offsetAngle = 60.0-map(sampleAreaCorrectedAB,0,maxTDOA,0,60);
+//          Serial.print("AB centre towards B");
+          offsetAngle = 60.0-map(sampleAreaCorrectedAB,0,maxTDOA,0,70);
           }
         if (remapAC > 0){
-          Serial.print("BC centre towards B");
-          offsetAngle = 300.0+map(sampleAreaCorrectedBC,0,-maxTDOA,0,60);   
+//          Serial.print("BC centre towards B");
+          offsetAngle = 300.0+map(sampleAreaCorrectedBC,0,-maxTDOA,0,70);   
           }
       }
       else if(remapAC > 0 && remapBC > 0){
-        Serial.print("C is closest || ");
+//        Serial.print("C is closest || ");
         if (remapAB == 0){
           offsetAngle = 240;
           }
         if (remapAB < 0){
-          Serial.print("AC towards C");
-          offsetAngle = 180.0+map(sampleAreaCorrectedAC,0,maxTDOA,0,60);
+//          Serial.print("AC towards C");
+          offsetAngle = 180.0+map(sampleAreaCorrectedAC,0,maxTDOA,0,70);
           }
         if (remapAB > 0){
-          Serial.print("BC towards C");
-          offsetAngle = 300.0-map(sampleAreaCorrectedBC,0,maxTDOA,0,60);   
+//          Serial.print("BC towards C");
+          offsetAngle = 300.0-map(sampleAreaCorrectedBC,0,maxTDOA,0,70);   
           }
       }
       else if(remapAB < 0 && remapAC < 0){
-        Serial.print("A is closest || ");
+//        Serial.print("A is closest || ");
         if (remapBC == 0){
           offsetAngle = 240;
           }
         if (remapBC < 0){
-          Serial.print("AB towards A");
-          offsetAngle = 60.0+map(sampleAreaCorrectedAB,0,-maxTDOA,0,60);
+//          Serial.print("AB towards A");
+          offsetAngle = 60.0+map(sampleAreaCorrectedAB,0,-maxTDOA,0,70);
           }
         if (remapBC > 0){
-          Serial.print("AC towards A");
-          offsetAngle = 120+map(sampleAreaCorrectedBC,0,maxTDOA,0,60);   
+//          Serial.print("AC towards A");
+          offsetAngle = 120+map(sampleAreaCorrectedBC,0,maxTDOA,0,70);   
           }
       }
         
         //Calculate the offset based on diff between a and c.
 //        offsetAngle = (remapBC*remapAB);
-        Serial.println(" || " + String(offsetAngle));
-        Serial.println("TDOA A->B: " + String(sampleAreaCorrectedAB) + " || " + "TDOA A->C: " + String(sampleAreaCorrectedAC) + " || " + "TDOA B->C: " + String(sampleAreaCorrectedBC));
-        Serial.println();
+        
+        Serial.println(String(offsetAngle));
+//        Serial.println("TDOA A->B: " + String(sampleAreaCorrectedAB) + " || " + "TDOA A->C: " + String(sampleAreaCorrectedAC) + " || " + "TDOA B->C: " + String(sampleAreaCorrectedBC));
+//        Serial.println();
       }
     else if(isCalibrated){
       
