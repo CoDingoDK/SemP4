@@ -1,36 +1,35 @@
 #include <ADC.h>
-#include <limits.h>
 #include <Deque.h>
 #define  IMPLEMENTATION  FIFO
-
 
 ADC *adc = new ADC(); // adc object
 ADC_Module *adcMod;
 const unsigned int micA = A0, micB = A1, micC = A2;
-int analogValA = 0, analogValB = 0, analogValC = 0;
-unsigned int counter = 0;
-float lastMicros, currMicros, detectStamp;
-const int activationThreshhold = 650;
-boolean triggered = false;
-unsigned int lastStamp = 0;
-const int activationTimeFrame = 300;
-float maxTDOA = 125;
-float baseFPS, detectFPS, totalFPS;
-float offsetVal, offsetAngle, finalAngle;
-const unsigned int angle_face_CB = 300, angle_face_AB = 60, angle_face_AC = 180;
-float AMax = 0, BMax = 0 , CMax = 0, AMaxIndex = 0, BMaxIndex = 0, CMaxIndex = 0;
-const int upperBounds_analog = activationTimeFrame * 3;
-const int upperBounds_offset = activationTimeFrame * 2;
-const int upperBounds_prelog = activationTimeFrame;
+unsigned int analogValA = 0, analogValB = 0, analogValC = 0, counter = 0;
+float lastMicros, currMicros, currEventStamp;
+float maxTDOA = 135, baseFPS, detectFPS, totalFPS, offsetVal, offsetAngle, finalAngle;;
+bool triggered = false;
+unsigned int lastEventStamp = 0;
+const unsigned int eventThresh = 650;
+const int eventLoops = 300, sampleStartIndex = eventLoops;
+const int upperBounds_analog = eventLoops * 3;
+const int upperBounds_offset = eventLoops * 2;
+const int upperBounds_prelog = eventLoops;
+const int deque_trigger_number = upperBounds_prelog-1;
+unsigned int ABMaxIndex, ACMaxIndex, BCMaxIndex;
+int ABTdoa, ACTdoa, BCTdoa;
 int analogValsA[upperBounds_analog], analogValsB[upperBounds_analog], analogValsC[upperBounds_analog];
 int offsetComparisonAB[upperBounds_offset], offsetComparisonAC[upperBounds_offset], offsetComparisonBC[upperBounds_offset];
-Deque<int> queueA(upperBounds_prelog), queueB(upperBounds_prelog), queueC(upperBounds_prelog);
+Deque<unsigned int> queueA(upperBounds_prelog), queueB(upperBounds_prelog), queueC(upperBounds_prelog);
 boolean isCalibrated = false;
 
+//float side_AB;
+//float side_AB_TDOA;
+//float a_angle;
 
 void setup() {
   adcMod = adc->adc0;
-  Serial.begin(2000000);
+  Serial.begin(20000000);
   pinMode(micA, INPUT);
   pinMode(micB, INPUT);
   pinMode(micC, INPUT);
@@ -38,8 +37,10 @@ void setup() {
 //  analogReadResolution(10);
   adcMod->setAveraging(0); // set number of averages
   adcMod->setResolution(10); // set bits of resolution
-  adcMod->setConversionSpeed(ADC_CONVERSION_SPEED::HIGH_SPEED); // ,  change the conversion speed
-  adcMod->setSamplingSpeed(ADC_SAMPLING_SPEED::HIGH_SPEED); // change the sampling speed
+  adcMod->setSamplingSpeed(ADC_SAMPLING_SPEED::VERY_HIGH_SPEED); // change the sampling speed
+  adcMod->setConversionSpeed(ADC_CONVERSION_SPEED::VERY_HIGH_SPEED ); // ,  change the conversion speed
+  adcMod->disableInterrupts();
+
   Serial.println("Wait for calibration");
 
 }
@@ -50,30 +51,31 @@ void loop() {
   analogValA = analogRead(micA);
   analogValB = analogRead(micB);
   analogValC = analogRead(micC);
-  if(counter >= upperBounds_prelog){
+  if(counter > deque_trigger_number){
     queueA.pop_front();
     queueB.pop_front();
-    queueC.pop_front(); 
+    queueC.pop_front();
   }
   queueA.push_back(analogValA);
   queueB.push_back(analogValB);
   queueC.push_back(analogValC);  
-  if((analogValA > activationThreshhold || analogValB > activationThreshhold || analogValC > activationThreshhold) &&  micros()-lastStamp > 250000 ){
-    detectStamp = micros();
-    for (unsigned int i = activationTimeFrame; i < upperBounds_analog; i++){
+  if((analogValA > eventThresh || analogValB > eventThresh || analogValC > eventThresh) &&  micros()-lastEventStamp > 250000){
+    if(isCalibrated){
+    currEventStamp = micros();
+    for (int i = eventLoops; i < upperBounds_analog; i++){
       analogValsA[i] = analogRead(micA);
       analogValsB[i] = analogRead(micB);
       analogValsC[i] = analogRead(micC);
     }
-    totalFPS = micros()-detectStamp;
+    totalFPS = micros()-currEventStamp;
     totalFPS = totalFPS/1000000;
     totalFPS = upperBounds_offset/totalFPS;
     totalFPS = ((2*totalFPS)/3)+(baseFPS/3)+2;
+//  Serial.println(totalFPS);
     maxTDOA = 0.13 * (totalFPS/340.27);
     triggered = true;
-    lastStamp = detectStamp;
-    AMax = 0, BMax = 0 , CMax = 0, AMaxIndex = 0, BMaxIndex = 0, CMaxIndex = 0, offsetVal = 0, offsetAngle = 0, finalAngle = 0;
-    for (unsigned int i = 0; i < upperBounds_analog; i++){
+    lastEventStamp = currEventStamp;
+    for (int i = 0; i < upperBounds_analog; i++){
       if(i < upperBounds_prelog){
         analogValsA[i] = map(queueA[i],0,1023,-511, 512);
         analogValsB[i] = map(queueB[i],0,1023,-511, 512);
@@ -84,100 +86,107 @@ void loop() {
         analogValsB[i] = map(analogValsB[i],0,1023,-511, 512);
         analogValsC[i] = map(analogValsC[i],0,1023,-511, 512);
         }
+//      if (i % 2 == 0){
+//    
+//        Serial.print(-511);
+//        Serial.print(",");
+//        Serial.print(512);
+//        Serial.print(",");
+//        Serial.println(analogValsA[i]);
+//      }
     }
 
-    int samplingSize = (sizeof(analogValsA) / sizeof(analogValsA[0]))/3; 
-    int samplingStartIndex = samplingSize;
-//    int maxSampleIndex = (sizeof(analogValsA) / sizeof(analogValsA[0]))-samplingSize;
-    for(unsigned int i = 0; i < upperBounds_offset;i++){
+    
+    for(int i = 0; i < upperBounds_offset; i++){
       offsetComparisonAB[i] = 0;
       offsetComparisonAC[i] = 0;
       offsetComparisonBC[i] = 0;
-      }
-    for(int i = -samplingSize; i < samplingSize; i++){
-      for(int j = samplingStartIndex; j < samplingStartIndex+samplingSize; j++){
-        offsetComparisonAB[i+samplingSize] += analogValsA[j]*analogValsB[j+i];
-        offsetComparisonAC[i+samplingSize] += analogValsA[j]*analogValsC[j+i];
-        offsetComparisonBC[i+samplingSize] += analogValsB[j]*analogValsC[j+i];
+      for(int j = sampleStartIndex; j < sampleStartIndex+eventLoops; j++){
+        offsetComparisonAB[i] += analogValsA[j]*analogValsB[j+i-sampleStartIndex];
+        offsetComparisonAC[i] += analogValsA[j]*analogValsC[j+i-sampleStartIndex];
+        offsetComparisonBC[i] += analogValsB[j]*analogValsC[j+i-sampleStartIndex];
       }
     }
-    unsigned int largestIndexAB = 0;
-    unsigned int largestIndexAC = 0;
-    unsigned int largestIndexBC = 0;
+    ABMaxIndex = 0;
+    ACMaxIndex = 0;
+    BCMaxIndex = 0;
     for(unsigned int i = 0; i < (sizeof(offsetComparisonAB) / sizeof(offsetComparisonAB[0])); i++){
 //      Serial.println(offsetComparisonAB[i]);
-      if(offsetComparisonAB[i] > offsetComparisonAB[largestIndexAB]){
-        largestIndexAB = i;
+      if(offsetComparisonAB[i] > offsetComparisonAB[ABMaxIndex]){
+        ABMaxIndex = i;
       }
-      if(offsetComparisonAC[i] > offsetComparisonAC[largestIndexAC]){
-        largestIndexAC = i;
+      if(offsetComparisonAC[i] > offsetComparisonAC[ACMaxIndex]){
+        ACMaxIndex = i;
       }
-      if(offsetComparisonBC[i] > offsetComparisonBC[largestIndexBC]){
-        largestIndexBC = i;
+      if(offsetComparisonBC[i] > offsetComparisonBC[BCMaxIndex]){
+        BCMaxIndex = i;
       }
     }
+    ABTdoa = sampleStartIndex-ABMaxIndex; 
+    ACTdoa = sampleStartIndex-ACMaxIndex; 
+    BCTdoa = sampleStartIndex-BCMaxIndex; 
     
-    int sampleAreaCorrectedAB = samplingStartIndex-largestIndexAB; 
-    int sampleAreaCorrectedAC = samplingStartIndex-largestIndexAC; 
-    int sampleAreaCorrectedBC = samplingStartIndex-largestIndexBC; 
-    if(abs(sampleAreaCorrectedAB) <= maxTDOA && abs(sampleAreaCorrectedAC) <= maxTDOA && abs(sampleAreaCorrectedBC) <= maxTDOA && isCalibrated){
-      float remapAB = (100.0/maxTDOA)*sampleAreaCorrectedAB; //Remapped value to percent. -100 to 100.
-      float remapAC = (100.0/maxTDOA)*sampleAreaCorrectedAC; 
-      float remapBC = (100.0/maxTDOA)*sampleAreaCorrectedBC; 
+      //What should've been done
+//    float side_AB = 0.13;
+//    float side_AB_TDOA = (340.27*ABTdoa)/totalFPS;
+//    float a_angle = degrees(asin((side_AB_TDOA*sin(90))/0.13));
+//    if (isnan(a_angle)){
+//        a_angle = 0;
+//      }
+//    float true_a_angle = 60-a_angle;
+//    Serial.println(true_a_angle);
+    if(abs(ABTdoa) <= maxTDOA && abs(ACTdoa) <= maxTDOA && abs(BCTdoa) <= maxTDOA && isCalibrated){
+      float remapAB = (100.0/maxTDOA)*ABTdoa; //Remapped value to percent. -100 to 100.
+      float remapAC = (100.0/maxTDOA)*ACTdoa; 
+      float remapBC = (100.0/maxTDOA)*BCTdoa; 
 
       if(remapAB > 0 && remapBC < 0){
-//        Serial.print("B is closest || ");
+        Serial.print("B is closest || ");
         if (remapAC == 0){
           offsetAngle = 0;
           }
         if (remapAC < 0){
-//          Serial.print("AB centre towards B");
-          offsetAngle = 60.0-map(sampleAreaCorrectedAB,0,maxTDOA,0,70);
+          Serial.print("AB centre towards B");
+          offsetAngle = 60.0-map(ABTdoa,0,maxTDOA,0,80);
           }
         if (remapAC > 0){
-//          Serial.print("BC centre towards B");
-          offsetAngle = 300.0+map(sampleAreaCorrectedBC,0,-maxTDOA,0,70);   
+          Serial.print("BC centre towards B");
+         offsetAngle = 300.0+map(BCTdoa,0,-maxTDOA,0,90);   
           }
       }
       else if(remapAC > 0 && remapBC > 0){
-//        Serial.print("C is closest || ");
+        Serial.print("C is closest || ");
         if (remapAB == 0){
-          offsetAngle = 240;
+          offsetAngle = 240.0;
           }
         if (remapAB < 0){
-//          Serial.print("AC towards C");
-          offsetAngle = 180.0+map(sampleAreaCorrectedAC,0,maxTDOA,0,70);
+          Serial.print("AC towards C");
+          offsetAngle = 180.0+map(ACTdoa,0,maxTDOA,0,80);
           }
         if (remapAB > 0){
-//          Serial.print("BC towards C");
-          offsetAngle = 300.0-map(sampleAreaCorrectedBC,0,maxTDOA,0,70);   
+          Serial.print("BC towards C");
+          offsetAngle = 300.0-map(BCTdoa,0,maxTDOA,0,80);   
           }
       }
       else if(remapAB < 0 && remapAC < 0){
-//        Serial.print("A is closest || ");
+        Serial.print("A is closest || ");
         if (remapBC == 0){
-          offsetAngle = 240;
+          offsetAngle = 240.0;
           }
         if (remapBC < 0){
-//          Serial.print("AB towards A");
-          offsetAngle = 60.0+map(sampleAreaCorrectedAB,0,-maxTDOA,0,70);
+          Serial.print("AB towards A");
+          offsetAngle = 60.0+map(ABTdoa,0,-maxTDOA,0,90);
           }
         if (remapBC > 0){
-//          Serial.print("AC towards A");
-          offsetAngle = 120+map(sampleAreaCorrectedBC,0,maxTDOA,0,70);   
+          Serial.print("AC towards A");
+          offsetAngle = 120.0+map(BCTdoa,0,maxTDOA,0,90);   
           }
       }
-        
-        //Calculate the offset based on diff between a and c.
-//        offsetAngle = (remapBC*remapAB);
-        
-        Serial.println(String(offsetAngle));
-//        Serial.println("TDOA A->B: " + String(sampleAreaCorrectedAB) + " || " + "TDOA A->C: " + String(sampleAreaCorrectedAC) + " || " + "TDOA B->C: " + String(sampleAreaCorrectedBC));
-//        Serial.println();
+                
+        Serial.println("|| angle is "+String(offsetAngle));
+        Serial.println("TDOA A->B: " + String(ABTdoa) + " || " + "TDOA A->C: " + String(ACTdoa) + " || " + "TDOA B->C: " + String(BCTdoa));
+        Serial.println();
       }
-    else if(isCalibrated){
-      
-//      Serial.println("A signal had best correllation outside the theorhetical signal distance");
     }
   }
     else if(counter > 1000000){
@@ -197,9 +206,7 @@ void loop() {
         currMicros = currMicros/1000000;
         lastMicros = currMicros;
         counter = 0;
-        triggered = false;
-        }
+        triggered = false; 
     }
-
-
+  }
 }
